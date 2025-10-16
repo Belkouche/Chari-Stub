@@ -2,7 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+
+// Generate UUID v4 using built-in crypto
+function generateUUID() {
+  return crypto.randomUUID();
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -166,7 +171,7 @@ const mockData = {
 
 // Utility function to standardize API responses
 const createResponse = (data, req = null) => {
-  const requestId = req?.headers['c-request-id'] || uuidv4();
+  const requestId = req?.headers['c-request-id'] || generateUUID();
   return {
     data,
     c_request_id: requestId
