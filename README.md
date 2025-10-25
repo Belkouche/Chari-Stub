@@ -45,12 +45,51 @@ The server will start on port 4000 by default.
 - `GET /customers/info` - Get customer information
 - `DELETE /customers/unregister` - Unregister customer
 
+### Transactions
+- `GET /customers/transactions` - Get paginated transaction list (supports `limit`, `offset`, `page`)
+- `GET /customers/transactions/:transactionId` - Get single transaction by ID
+
+### Operations
+- `GET /operations` - Get paginated operations list with filtering (supports `pageSize`, `pageNumber`, `operationType`, `transactionStatus`)
+- `GET /operations/:operationId` - Get single operation by ID
+
 ### Health Check
 - `GET /health` - Server health status
 
+## Data Format & Coherence
+
+### Transaction vs Operation Format
+
+The API provides two views of the same underlying data:
+
+**Transaction Format** (raw format from `/customers/transactions`):
+- Returns actual transaction records as stored
+- Amounts can be positive (credits) or negative (debits)
+- Status: `COMPLETED`, `PENDING`
+- Types: `CASHIN`, `CASHOUT`, `TRANSFER_IN`, `TRANSFER_OUT`, `BILL_PAYMENT`
+
+**Operation Format** (formatted view from `/operations`):
+- Transforms transactions into standardized operation records
+- Amounts are always absolute values
+- Status codes: `1` (pending), `2` (completed)
+- Operation type codes: `1` (CASHIN), `2` (CASHOUT), `3` (TRANSFER), `4` (BILL_PAYMENT)
+- Sens: `1` (credit/incoming), `2` (debit/outgoing)
+- Includes `beneficiaryName` for transfers
+
+Both endpoints always return coherent data - the same transaction will have matching amounts, dates, and descriptions across both formats.
+
+### Pagination
+
+All list endpoints support pagination with metadata:
+- `total` - Total number of records
+- `page`/`pageNumber` - Current page
+- `totalPages` - Total number of pages
+- `hasMore` - Boolean indicating if more pages exist
+- `hasPrevious` - Boolean indicating if previous pages exist
+
 ## Test Data
 
-The stub comes with pre-configured test customers:
+The stub comes with pre-configured test customers with **25 fake transactions each**:
 
 | Phone Number | Status | Description |
 |--------------|--------|-------------|
@@ -72,6 +111,28 @@ x-api-key: aslan_internal_key_123
 - **PIN**: `1234` (for login and PIN creation)
 
 ## Example Usage
+
+### Transaction & Operation Examples
+
+```bash
+# Get paginated transactions (page 1, 10 items)
+curl -H "x-api-key: aslan_internal_key_123" \
+  "http://localhost:4000/customers/transactions?phoneNumber=+212600000004&limit=10&page=1"
+
+# Get single transaction by ID
+curl -H "x-api-key: aslan_internal_key_123" \
+  "http://localhost:4000/customers/transactions/5?phoneNumber=+212600000004"
+
+# Get paginated operations with filtering
+curl -H "x-api-key: aslan_internal_key_123" \
+  "http://localhost:4000/operations?phoneNumber=+212600000004&pageSize=10&pageNumber=1&operationType=CASHIN"
+
+# Get single operation by ID
+curl -H "x-api-key: aslan_internal_key_123" \
+  "http://localhost:4000/operations/5?phoneNumber=+212600000004"
+```
+
+### Customer Management Examples
 
 ```bash
 # Check customer status (non-existent customer)

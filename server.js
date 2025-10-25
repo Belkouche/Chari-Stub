@@ -48,6 +48,56 @@ const validateApiKey = (req, res, next) => {
 // Apply API key validation to all routes
 app.use(validateApiKey);
 
+// Function to generate fake transactions for testing
+function generateFakeTransactions(count = 25) {
+  const transactionTypes = ['CASHIN', 'CASHOUT', 'TRANSFER_IN', 'TRANSFER_OUT', 'BILL_PAYMENT'];
+  const descriptions = {
+    'CASHIN': ['Mobile money deposit', 'Cash deposit at agent', 'Cash deposit at branch', 'ATM deposit', 'Bank transfer in'],
+    'CASHOUT': ['ATM withdrawal', 'Cash withdrawal at agent', 'Cash withdrawal at branch', 'Point of sale'],
+    'TRANSFER_IN': ['Transfer from +212611111111', 'Transfer from +212622222222', 'Transfer from +212633333333', 'Salary payment', 'Family transfer'],
+    'TRANSFER_OUT': ['Transfer to +212644444444', 'Transfer to +212655555555', 'Payment to merchant', 'Bill payment', 'Friend transfer'],
+    'BILL_PAYMENT': ['Electricity bill', 'Water bill', 'Internet bill', 'Mobile top-up', 'Insurance payment']
+  };
+  const statuses = ['COMPLETED', 'COMPLETED', 'COMPLETED', 'COMPLETED', 'PENDING']; // More completed than pending
+
+  const transactions = [];
+  let currentBalance = 5000.00; // Starting balance
+  const now = new Date();
+
+  for (let i = 0; i < count; i++) {
+    const type = transactionTypes[Math.floor(Math.random() * transactionTypes.length)];
+    const isCredit = type === 'CASHIN' || type === 'TRANSFER_IN';
+    const baseAmount = Math.random() * 1000 + 50; // Random amount between 50 and 1050
+    const amount = isCredit ? baseAmount : -baseAmount;
+
+    currentBalance += amount;
+
+    // Generate date going backwards in time
+    const daysAgo = count - i;
+    const date = new Date(now);
+    date.setDate(date.getDate() - daysAgo);
+    date.setHours(Math.floor(Math.random() * 24));
+    date.setMinutes(Math.floor(Math.random() * 60));
+
+    const descList = descriptions[type];
+    const description = descList[Math.floor(Math.random() * descList.length)];
+    const status = statuses[Math.floor(Math.random() * statuses.length)];
+
+    transactions.unshift({ // Add to beginning so newest are first
+      id: `TXN_${String(i + 1).padStart(3, '0')}`,
+      type: type,
+      amount: parseFloat(amount.toFixed(2)),
+      currency: 'MAD',
+      date: date.toISOString(),
+      description: description,
+      status: status,
+      balanceAfter: parseFloat(currentBalance.toFixed(2))
+    });
+  }
+
+  return transactions;
+}
+
 // Mock database - in memory store for development
 const mockData = {
   customers: {
@@ -92,80 +142,9 @@ const mockData = {
     '+212600000002': 0.00
   },
   transactions: {
-    '+212600000004': [
-      {
-        id: 'TXN_001',
-        type: 'CASHIN',
-        amount: 700.25,
-        currency: 'MAD',
-        date: '2024-01-26T11:15:00Z',
-        description: 'Mobile money deposit',
-        status: 'COMPLETED',
-        balanceAfter: 3247.75
-      },
-      {
-        id: 'TXN_002',
-        type: 'CASHIN',
-        amount: 500.00,
-        currency: 'MAD',
-        date: '2024-01-25T09:30:00Z',
-        description: 'Cash deposit at agent',
-        status: 'COMPLETED',
-        balanceAfter: 2547.50
-      },
-      {
-        id: 'TXN_003',
-        type: 'TRANSFER_OUT',
-        amount: -150.00,
-        currency: 'MAD',
-        date: '2024-01-24T16:45:00Z',
-        description: 'Transfer to +212611111111',
-        status: 'COMPLETED',
-        balanceAfter: 2047.50
-      },
-      {
-        id: 'TXN_004',
-        type: 'CASHIN',
-        amount: 1000.00,
-        currency: 'MAD',
-        date: '2024-01-22T11:20:00Z',
-        description: 'Cash deposit at branch',
-        status: 'COMPLETED',
-        balanceAfter: 2197.50
-      },
-      {
-        id: 'TXN_005',
-        type: 'BILL_PAYMENT',
-        amount: -85.50,
-        currency: 'MAD',
-        date: '2024-01-20T14:10:00Z',
-        description: 'Electricity bill payment',
-        status: 'COMPLETED',
-        balanceAfter: 1197.50
-      },
-      {
-        id: 'TXN_006',
-        type: 'TRANSFER_IN',
-        amount: 300.00,
-        currency: 'MAD',
-        date: '2024-01-18T08:55:00Z',
-        description: 'Transfer from +212622222222',
-        status: 'COMPLETED',
-        balanceAfter: 1283.00
-      }
-    ],
-    '+212600000003': [
-      {
-        id: 'TXN_007',
-        type: 'CASHIN',
-        amount: 150.00,
-        currency: 'MAD',
-        date: '2024-01-21T10:15:00Z',
-        description: 'Initial deposit',
-        status: 'COMPLETED',
-        balanceAfter: 150.00
-      }
-    ]
+    '+212600000004': generateFakeTransactions(25),
+    '+212600000003': generateFakeTransactions(25),
+    '+212600000002': generateFakeTransactions(25)
   }
 };
 
@@ -183,6 +162,100 @@ const createErrorResponse = (errorCode, errorDescription) => ({
   errorCode,
   errorDescription
 });
+
+// Utility function to convert transaction type to operation type code
+const getOperationType = (transactionType) => {
+  const typeMap = {
+    'CASHIN': 1,
+    'CASHOUT': 2,
+    'TRANSFER_IN': 3,
+    'TRANSFER_OUT': 3,
+    'BILL_PAYMENT': 4
+  };
+  return typeMap[transactionType] || 0;
+};
+
+// Utility function to convert transaction status to numeric code
+const getTransactionStatus = (status) => {
+  return status === 'COMPLETED' ? 2 : 1; // 1 = pending, 2 = completed
+};
+
+// Utility function to generate transaction reference
+const generateTransactionReference = (tx, operationType) => {
+  const date = new Date(tx.date);
+  const year = String(date.getFullYear()).slice(-2);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const txId = tx.id.replace('TXN_', '');
+
+  // Format: T{opType}{opType}-{YYMMDD}{HH}-{txId}
+  const opTypeStr = String(operationType).padStart(2, '0');
+  return `T${opTypeStr}${opTypeStr}-${year}${month}${day}${hour}-${txId}`;
+};
+
+// Utility function to extract phone numbers from transaction description
+const extractPhoneNumbers = (tx, customerPhone) => {
+  let sender = null;
+  let receiver = null;
+  let beneficiary = null;
+
+  if (tx.type === 'TRANSFER_OUT') {
+    sender = customerPhone;
+    // Try to extract receiver from description
+    const phoneMatch = tx.description.match(/\+212\d{9}/);
+    receiver = phoneMatch ? phoneMatch[0] : null;
+    beneficiary = tx.description;
+  } else if (tx.type === 'TRANSFER_IN') {
+    receiver = customerPhone;
+    // Try to extract sender from description
+    const phoneMatch = tx.description.match(/\+212\d{9}/);
+    sender = phoneMatch ? phoneMatch[0] : null;
+    beneficiary = tx.description;
+  } else if (tx.type === 'CASHIN') {
+    receiver = customerPhone;
+    sender = customerPhone;
+  } else if (tx.type === 'CASHOUT') {
+    sender = customerPhone;
+    receiver = customerPhone;
+  } else {
+    // BILL_PAYMENT
+    sender = customerPhone;
+    receiver = null;
+  }
+
+  return { sender, receiver, beneficiary };
+};
+
+// Utility function to convert transaction to operation format
+const transactionToOperation = (tx, phoneNumber, operationId = null) => {
+  const opType = getOperationType(tx.type);
+  const amount = Math.abs(tx.amount);
+  const { sender, receiver, beneficiary } = extractPhoneNumbers(tx, phoneNumber);
+
+  return {
+    operationId: operationId,
+    transactionId: parseInt(tx.id.replace('TXN_', '')),
+    transactionReference: generateTransactionReference(tx, opType),
+    amount: amount,
+    reason: tx.description || null,
+    operationType: opType,
+    transactionDate: tx.date,
+    sens: tx.amount > 0 ? 1 : 2, // 1 = credit, 2 = debit
+    transactionStatus: getTransactionStatus(tx.status),
+    feesAmount: 0,
+    totalAmount: amount,
+    transactionFeesId: null,
+    sender: sender,
+    receiver: receiver,
+    beneficiary: beneficiary,
+    // Legacy fields for backward compatibility
+    accountNumber: phoneNumber,
+    beneficiaryName: beneficiary || '',
+    currency: tx.currency || 'MAD',
+    balanceAfter: tx.balanceAfter
+  };
+};
 
 // Routes
 
@@ -435,34 +508,66 @@ app.get('/customers/info', (req, res) => {
 
 // Customer Transactions - GET /customers/transactions
 app.get('/customers/transactions', (req, res) => {
-  const { phoneNumber, limit = 10, offset = 0 } = req.query;
+  const { phoneNumber, limit = 10, offset = 0, page = 1 } = req.query;
 
-  console.log(`[CHARI-STUB] Transactions request for: ${phoneNumber}, limit: ${limit}, offset: ${offset}`);
+  console.log(`[CHARI-STUB] Transactions request for: ${phoneNumber}, limit: ${limit}, offset: ${offset}, page: ${page}`);
 
   if (!phoneNumber) {
     return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
   }
 
   const transactions = mockData.transactions[phoneNumber] || [];
-  const startIndex = parseInt(offset);
   const pageSize = parseInt(limit);
-  const paginatedTransactions = transactions.slice(startIndex, startIndex + pageSize);
+  const pageNumber = parseInt(page);
+
+  // Support both offset-based and page-based pagination
+  const startIndex = offset ? parseInt(offset) : (pageNumber - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedTransactions = transactions.slice(startIndex, endIndex);
+
+  const totalPages = Math.ceil(transactions.length / pageSize);
+  const currentPage = Math.floor(startIndex / pageSize) + 1;
 
   const response = {
     transactions: paginatedTransactions,
     total: transactions.length,
     limit: pageSize,
     offset: startIndex,
-    hasMore: startIndex + pageSize < transactions.length
+    page: currentPage,
+    totalPages: totalPages,
+    hasMore: endIndex < transactions.length,
+    hasPrevious: startIndex > 0
   };
 
-  console.log(`[CHARI-STUB] Returning ${paginatedTransactions.length} transactions for ${phoneNumber}`);
+  console.log(`[CHARI-STUB] Returning ${paginatedTransactions.length} of ${transactions.length} transactions for ${phoneNumber} (page ${currentPage}/${totalPages})`);
   res.json(createResponse(response, req));
 });
 
-// Customer Operations/Transfers - GET /operations
-app.get('/operations', (req, res) => {
-  const { phoneNumber, type, limit = 10, offset = 0 } = req.query;
+// Get Single Transaction - GET /customers/transactions/:transactionId
+app.get('/customers/transactions/:transactionId', (req, res) => {
+  const { phoneNumber } = req.query;
+  const { transactionId } = req.params;
+
+  console.log(`[CHARI-STUB] Get transaction ${transactionId} for: ${phoneNumber}`);
+
+  if (!phoneNumber) {
+    return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
+  }
+
+  const transactions = mockData.transactions[phoneNumber] || [];
+  const transaction = transactions.find(tx => tx.id === `TXN_${String(transactionId).padStart(3, '0')}`);
+
+  if (!transaction) {
+    return res.status(404).json(createErrorResponse(404, 'Transaction not found'));
+  }
+
+  console.log(`[CHARI-STUB] Found transaction: ${transaction.id}`);
+  res.json(createResponse(transaction, req));
+});
+
+// Customer Operations/Transfers - GET /operations (first version - simple)
+app.get('/operations-simple', (req, res) => {
+  const { phoneNumber, type, limit = 10, offset = 0, page = 1 } = req.query;
 
   console.log(`[CHARI-STUB] Operations request for: ${phoneNumber}, type: ${type}`);
 
@@ -477,19 +582,29 @@ app.get('/operations', (req, res) => {
     transactions = transactions.filter(t => t.type === type);
   }
 
-  const startIndex = parseInt(offset);
   const pageSize = parseInt(limit);
-  const paginatedTransactions = transactions.slice(startIndex, startIndex + pageSize);
+  const pageNumber = parseInt(page);
+
+  // Support both offset-based and page-based pagination
+  const startIndex = offset ? parseInt(offset) : (pageNumber - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const paginatedTransactions = transactions.slice(startIndex, endIndex);
+
+  const totalPages = Math.ceil(transactions.length / pageSize);
+  const currentPage = Math.floor(startIndex / pageSize) + 1;
 
   const response = {
     operations: paginatedTransactions,
     total: transactions.length,
     limit: pageSize,
     offset: startIndex,
-    hasMore: startIndex + pageSize < transactions.length
+    page: currentPage,
+    totalPages: totalPages,
+    hasMore: endIndex < transactions.length,
+    hasPrevious: startIndex > 0
   };
 
-  console.log(`[CHARI-STUB] Returning ${paginatedTransactions.length} operations for ${phoneNumber}`);
+  console.log(`[CHARI-STUB] Returning ${paginatedTransactions.length} of ${transactions.length} operations for ${phoneNumber} (page ${currentPage}/${totalPages})`);
   res.json(createResponse(response, req));
 });
 
@@ -614,11 +729,11 @@ app.post('/operations/transfer', (req, res) => {
   res.json(createResponse(transferResponse, req));
 });
 
-// Get Operations - GET /operations
+// Get Operations - GET /operations (main endpoint with full formatting)
 app.get('/operations', (req, res) => {
   const { phoneNumber, operationType, transactionStatus, pageSize = 10, pageNumber = 1 } = req.query;
 
-  console.log(`[CHARI-STUB] Get operations for: ${phoneNumber}`);
+  console.log(`[CHARI-STUB] Get operations for: ${phoneNumber}, pageSize: ${pageSize}, pageNumber: ${pageNumber}`);
 
   if (!phoneNumber) {
     return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
@@ -634,34 +749,75 @@ app.get('/operations', (req, res) => {
   }
 
   if (transactionStatus) {
-    transactions = transactions.filter(t => t.status === parseInt(transactionStatus));
+    const statusStr = transactionStatus.toString().toUpperCase();
+    transactions = transactions.filter(t => t.status.toString().toUpperCase() === statusStr);
   }
 
+  const pageSizeInt = parseInt(pageSize);
+  const pageNumberInt = parseInt(pageNumber);
+  const totalRecords = transactions.length;
+  const totalPages = Math.ceil(totalRecords / pageSizeInt);
+
   // Apply pagination
-  const startIndex = (parseInt(pageNumber) - 1) * parseInt(pageSize);
-  const endIndex = startIndex + parseInt(pageSize);
+  const startIndex = (pageNumberInt - 1) * pageSizeInt;
+  const endIndex = startIndex + pageSizeInt;
   const paginatedTransactions = transactions.slice(startIndex, endIndex);
 
-  // Convert to expected format
-  const operations = paginatedTransactions.map((tx, index) => ({
-    operationId: startIndex + index + 1,
-    transactionId: parseInt(tx.id.replace('TXN_', '')),
-    amount: Math.abs(tx.amount),
-    reason: tx.description,
-    transactionDate: tx.date,
-    operationType: tx.type === 'CASHIN' ? 1 : tx.type === 'CASHOUT' ? 2 : 3,
-    accountNumber: phoneNumber,
-    beneficiaryName: '',
-    transactionStatus: 2, // completed
-    sens: tx.amount > 0 ? 1 : 2 // credit : debit
-  }));
+  // Convert to expected format using helper function
+  const operations = paginatedTransactions.map((tx, index) =>
+    transactionToOperation(tx, phoneNumber, startIndex + index + 1)
+  );
 
   const response = {
     collection: operations,
-    count: operations.length
+    count: operations.length,
+    total: totalRecords,
+    pageNumber: pageNumberInt,
+    pageSize: pageSizeInt,
+    totalPages: totalPages,
+    hasMore: endIndex < totalRecords,
+    hasPrevious: pageNumberInt > 1
   };
 
+  console.log(`[CHARI-STUB] Returning ${operations.length} of ${totalRecords} operations for ${phoneNumber} (page ${pageNumberInt}/${totalPages})`);
   res.json(createResponse(response, req));
+});
+
+// Get Single Operation - GET /operations/:operationId
+app.get('/operations/:operationId', (req, res) => {
+  const { phoneNumber } = req.query;
+  const { operationId } = req.params;
+
+  console.log(`[CHARI-STUB] Get operation ${operationId} for: ${phoneNumber}`);
+
+  if (!phoneNumber) {
+    return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
+  }
+
+  const transactions = mockData.transactions[phoneNumber] || [];
+
+  // operationId can map to transactionId or be sequential
+  // Try to find by transaction ID first
+  const opIdInt = parseInt(operationId);
+  let transaction = transactions.find(tx => {
+    const txId = parseInt(tx.id.replace('TXN_', ''));
+    return txId === opIdInt;
+  });
+
+  // If not found by transaction ID, try by sequential index (1-based)
+  if (!transaction && opIdInt > 0 && opIdInt <= transactions.length) {
+    transaction = transactions[opIdInt - 1];
+  }
+
+  if (!transaction) {
+    return res.status(404).json(createErrorResponse(404, 'Operation not found'));
+  }
+
+  // Convert to operation format
+  const operation = transactionToOperation(transaction, phoneNumber, opIdInt);
+
+  console.log(`[CHARI-STUB] Found operation: ${operation.transactionId}`);
+  res.json(createResponse(operation, req));
 });
 
 // Beneficiary Management
