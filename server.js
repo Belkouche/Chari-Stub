@@ -729,11 +729,11 @@ app.post('/operations/transfer', (req, res) => {
   res.json(createResponse(transferResponse, req));
 });
 
-// Get Operations - GET /operations (main endpoint with full formatting)
+// Get Operations - GET /operations (Chari API format - nested collection)
 app.get('/operations', (req, res) => {
   const { phoneNumber, operationType, transactionStatus, pageSize = 10, pageNumber = 1 } = req.query;
 
-  console.log(`[CHARI-STUB] Get operations for: ${phoneNumber}, pageSize: ${pageSize}, pageNumber: ${pageNumber}`);
+  console.log(`[CHARI-STUB] [/operations] Get operations for: ${phoneNumber}, pageSize: ${pageSize}, pageNumber: ${pageNumber}`);
 
   if (!phoneNumber) {
     return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
@@ -768,6 +768,7 @@ app.get('/operations', (req, res) => {
     transactionToOperation(tx, phoneNumber, startIndex + index + 1)
   );
 
+  // Return Chari API format (nested collection)
   const response = {
     collection: operations,
     count: operations.length,
@@ -779,8 +780,73 @@ app.get('/operations', (req, res) => {
     hasPrevious: pageNumberInt > 1
   };
 
-  console.log(`[CHARI-STUB] Returning ${operations.length} of ${totalRecords} operations for ${phoneNumber} (page ${pageNumberInt}/${totalPages})`);
+  console.log(`[CHARI-STUB] [/operations] Returning ${operations.length} of ${totalRecords} operations (page ${pageNumberInt}/${totalPages})`);
   res.json(createResponse(response, req));
+});
+
+// Get Operations - GET /customers/operations (Aslan API format - flat array)
+app.get('/customers/operations', (req, res) => {
+  const { phoneNumber, operationType, transactionStatus, pageSize = 10, pageNumber = 1, limit, offset } = req.query;
+
+  console.log(`[CHARI-STUB] [/customers/operations] Get operations for: ${phoneNumber}, pageSize: ${pageSize}, pageNumber: ${pageNumber}, limit: ${limit}, offset: ${offset}`);
+
+  if (!phoneNumber) {
+    return res.status(400).json(createErrorResponse(400, 'Phone number is required'));
+  }
+
+  // Get transactions for this customer
+  let transactions = mockData.transactions[phoneNumber] || [];
+
+  // Apply filters if provided
+  if (operationType) {
+    const opTypes = Array.isArray(operationType) ? operationType : [operationType];
+    transactions = transactions.filter(t => opTypes.includes(t.type.toString()));
+  }
+
+  if (transactionStatus) {
+    const statusStr = transactionStatus.toString().toUpperCase();
+    transactions = transactions.filter(t => t.status.toString().toUpperCase() === statusStr);
+  }
+
+  // Support both limit/offset and pageSize/pageNumber pagination
+  let startIndex, endIndex, limitInt;
+
+  if (limit !== undefined || offset !== undefined) {
+    // Use limit/offset pagination
+    limitInt = parseInt(limit) || 10;
+    startIndex = parseInt(offset) || 0;
+    endIndex = startIndex + limitInt;
+  } else {
+    // Use pageSize/pageNumber pagination
+    const pageSizeInt = parseInt(pageSize) || 10;
+    const pageNumberInt = parseInt(pageNumber) || 1;
+    limitInt = pageSizeInt;
+    startIndex = (pageNumberInt - 1) * pageSizeInt;
+    endIndex = startIndex + pageSizeInt;
+  }
+
+  const totalRecords = transactions.length;
+  const paginatedTransactions = transactions.slice(startIndex, endIndex);
+
+  // Convert to expected format using helper function
+  const operations = paginatedTransactions.map((tx, index) =>
+    transactionToOperation(tx, phoneNumber, startIndex + index + 1)
+  );
+
+  const requestId = req.headers['c-request-id'] || generateUUID();
+
+  // Return Aslan API format (flat array)
+  const response = {
+    data: operations,
+    total: totalRecords,
+    limit: limitInt,
+    offset: startIndex,
+    hasMore: endIndex < totalRecords,
+    cRequestId: requestId
+  };
+
+  console.log(`[CHARI-STUB] [/customers/operations] Returning ${operations.length} of ${totalRecords} operations (offset ${startIndex}, limit ${limitInt})`);
+  res.json(response);
 });
 
 // Get Single Operation - GET /operations/:operationId
